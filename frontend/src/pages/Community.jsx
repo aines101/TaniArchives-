@@ -14,24 +14,25 @@ const Community = () => {
 
   const categories = ["Memory", "Festival", "Craft", "Song", "Folktale", "Food", "Language"];
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!user) return;
     if (!form.title.trim() || !form.description.trim()) {
       toast({ title: "Missing fields", description: "Please add both a title and a description." });
       return;
     }
-    const post = {
-      id: `p_${Date.now()}`,
-      ...form,
-      title: form.title.trim(),
-      description: form.description.trim(),
-      author: { name: user.name, email: user.email, picture: user.picture },
-      createdAt: new Date().toISOString(),
-    };
-    addPost(post);
-    setForm({ title: "", category: "Memory", imageUrl: "", description: "" });
-    toast({ title: "Posted!", description: "Your contribution is now visible on the community wall." });
+    try {
+      await addPost({
+        title: form.title.trim(),
+        category: form.category,
+        imageUrl: form.imageUrl || null,
+        description: form.description.trim(),
+      });
+      setForm({ title: "", category: "Memory", imageUrl: "", description: "" });
+      toast({ title: "Posted!", description: "Your contribution is now on the community wall." });
+    } catch (err) {
+      toast({ title: "Could not post", description: err?.response?.data?.detail || "Please try again." });
+    }
   };
 
   return (

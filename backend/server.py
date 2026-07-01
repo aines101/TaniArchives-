@@ -1,88 +1,285 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
 import uuid
-from datetime import datetime, timezone
-
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import List, Optional
+from pydantic import BaseModel, Field
+import httpx
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ["MONGO_URL"]
+db_name = os.environ.get("DB_NAME", "tani_archive")
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[db_name]
 
-# Create the main app without a prefix
 app = FastAPI()
-
-# Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+EMERGENT_SESSION_DATA_URL = (
+    "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+)
+SESSION_TTL_DAYS = 7
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+# ------------ Models ------------
+class User(BaseModel):
+    user_id: str
+    email: str
+    name: str
+    picture: Optional[str] = None
 
-# Add your routes to the router instead of directly to app
+
+class SessionRequest(BaseModel):
+    session_id: str
+
+
+class PostCreate(BaseModel):
+    title: str
+    category: str
+    description: str
+    imageUrl: Optional[str] = None
+
+
+class Post(BaseModel):
+    id: str
+    title: str
+    category: str
+    description: str
+    imageUrl: Optional[str] = None
+    author: dict
+    createdAt: str
+
+
+# ------------ Auth helpers ------------
+async def get_current_user(request: Request) -> User:
+    token = request.cookies.get("session_token")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.lower().startswith("bearer "):
+            token = auth.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    session_doc = await db.user_sessions.find_one(
+        {"session_token": token}, {"_id": 0}
+    )
+    if not session_doc:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    expires_at = session_doc["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    user_doc = await db.users.find_one(
+        {"user_id": session_doc["user_id"]}, {"_id": 0}
+    )
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="User not found")
+    return User(**user_doc)
+
+
+# ------------ Auth Routes ------------
+@api_router.post("/auth/session")
+async def create_session(payload: SessionRequest, response: Response):
+    """Exchange session_id from Emergent OAuth for a backend session cookie."""
+    async with httpx.AsyncClient(timeout=15.0) as http:
+        r = await http.get(
+            EMERGENT_SESSION_DATA_URL,
+            headers={"X-Session-ID": payload.session_id},
+        )
+    if r.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid session_id")
+    data = r.json()
+
+    email = data.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Missing email in auth data")
+
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        user_id = existing["user_id"]
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"name": data.get("name", existing.get("name")),
+                       "picture": data.get("picture", existing.get("picture"))}},
+        )
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one(
+            {
+                "user_id": user_id,
+                "email": email,
+                "name": data.get("name", ""),
+                "picture": data.get("picture", ""),
+                "created_at": datetime.now(timezone.utc),
+            }
+        )
+
+    session_token = data.get("session_token") or uuid.uuid4().hex
+    expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_TTL_DAYS)
+    await db.user_sessions.insert_one(
+        {
+            "user_id": user_id,
+            "session_token": session_token,
+            "expires_at": expires_at,
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=SESSION_TTL_DAYS * 24 * 60 * 60,
+        path="/",
+    )
+
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return {"user": User(**user_doc), "session_token": session_token}
+
+
+@api_router.get("/auth/me")
+async def get_me(user: User = Depends(get_current_user)):
+    return user
+
+
+@api_router.post("/auth/logout")
+async def logout(request: Request, response: Response):
+    token = request.cookies.get("session_token")
+    if token:
+        await db.user_sessions.delete_many({"session_token": token})
+    response.delete_cookie("session_token", path="/", samesite="none", secure=True)
+    return {"ok": True}
+
+
+# ------------ Posts Routes ------------
+@api_router.get("/posts")
+async def list_posts():
+    docs = (
+        await db.posts.find({}, {"_id": 0})
+        .sort("createdAt", -1)
+        .to_list(500)
+    )
+    return docs
+
+
+@api_router.post("/posts")
+async def create_post(payload: PostCreate, user: User = Depends(get_current_user)):
+    if not payload.title.strip() or not payload.description.strip():
+        raise HTTPException(status_code=400, detail="Title and description are required")
+    post = {
+        "id": f"p_{uuid.uuid4().hex[:12]}",
+        "title": payload.title.strip(),
+        "category": payload.category,
+        "description": payload.description.strip(),
+        "imageUrl": payload.imageUrl,
+        "author": {
+            "user_id": user.user_id,
+            "name": user.name,
+            "email": user.email,
+            "picture": user.picture,
+        },
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.posts.insert_one(post)
+    return {k: v for k, v in post.items() if k != "_id"}
+
+
+@api_router.delete("/posts/{post_id}")
+async def delete_post(post_id: str, user: User = Depends(get_current_user)):
+    doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if doc["author"].get("user_id") != user.user_id and doc["author"].get("email") != user.email:
+        raise HTTPException(status_code=403, detail="You can only delete your own post")
+    await db.posts.delete_one({"id": post_id})
+    return {"ok": True}
+
+
+# ------------ Content routes (seeded from mock) ------------
+SEED_ARTICLES = [
+    {
+        "id": "ali-ai-ligang",
+        "category": "Festival",
+        "title": "Ali\u2013Ai\u2013L\u00edgang: The Spring Sowing Festival of the Mising",
+        "excerpt": "An introduction to Ali\u2013Ai\u2013L\u00edgang, the Mising spring festival that marks the beginning of the sowing season with G\u00fcmr\u00e1g dance, apong rice-beer, and ancestral blessings.",
+        "image": "https://images.unsplash.com/photo-1759738102510-ec524f666274",
+        "featured": True,
+    },
+    {
+        "id": "mising-script",
+        "category": "Language",
+        "title": "Reading Mising: The Roman-Mising Script",
+        "excerpt": "Exploring the Tani linguistic roots and how Mising is written today using an adapted Roman orthography.",
+        "image": None,
+    },
+    {
+        "id": "tani-clan-names",
+        "category": "Language",
+        "title": "Historical Tani Clan Names",
+        "excerpt": "Meaning of some historical Tani clan names \u2014 Pegu, Do:ley, Kutum, Pait, Taid \u2014 and their oral genealogies.",
+        "image": None,
+    },
+    {
+        "id": "kebang-system",
+        "category": "History",
+        "title": "Kebang: The Traditional Village Council",
+        "excerpt": "A primer on the Kebang system of self-governance practised by the Tani communities long before modern administration.",
+        "image": None,
+    },
+    {
+        "id": "etymology-of-mising",
+        "category": "general",
+        "title": "Etymology of \u2018Mising\u2019: Origins and Meaning Behind the Name",
+        "excerpt": "'Mi' means man and 'A:sing' means son of the soil \u2014 tracing the layered meaning of the word Mising.",
+        "image": "https://images.unsplash.com/photo-1602020234671-15fd6180428d",
+    },
+    {
+        "id": "donyi-polo",
+        "category": "belief",
+        "title": "Donyi\u2013Polo: The Sun\u2013Moon Faith of the Tani",
+        "excerpt": "How the Tani clans worship Donyi (Sun) and Polo (Moon) as the twin witnesses of truth.",
+        "image": "https://images.pexels.com/photos/19347225/pexels-photo-19347225.jpeg",
+    },
+]
+
+
+@api_router.get("/content/articles")
+async def get_articles():
+    return SEED_ARTICLES
+
+
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "Tani Archive API"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
-
-# Include the router in the main app
 app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
