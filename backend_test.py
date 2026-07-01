@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Tani Archive Backend API Test Suite
-Tests all backend endpoints including auth and posts CRUD
+Tests all backend endpoints including auth, posts CRUD, uploads, and moderation
 """
 import requests
 import json
 import sys
 import os
+import io
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
 
@@ -22,6 +23,7 @@ test_session_token = None
 test_post_id = None
 second_user_id = None
 second_session_token = None
+uploaded_files = []  # Track uploaded files for cleanup
 
 
 def log_test(test_name, passed, details=""):
@@ -124,7 +126,7 @@ def create_second_test_user_in_db():
 
 
 def cleanup_test_data():
-    """Clean up test data from MongoDB"""
+    """Clean up test data from MongoDB and uploaded files"""
     try:
         client = MongoClient(MONGO_URL)
         db = client[DB_NAME]
@@ -150,6 +152,19 @@ def cleanup_test_data():
         
         print("\n🧹 Cleaned up test data from MongoDB")
         client.close()
+        
+        # Delete uploaded files
+        for file_url in uploaded_files:
+            try:
+                # Extract filename from URL like /api/uploads/abc123.png
+                filename = file_url.split('/')[-1]
+                file_path = f"/app/backend/uploads/{filename}"
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"   Deleted uploaded file: {filename}")
+            except Exception as e:
+                print(f"   Warning: Failed to delete {file_url}: {e}")
+        
     except Exception as e:
         print(f"⚠️  Warning: Failed to clean up test data: {e}")
 
@@ -373,6 +388,218 @@ def test_10_delete_other_user_post():
         log_test("DELETE /api/posts/{id} with different user returns 403", False, str(e))
 
 
+def create_test_png():
+    """Create a minimal valid PNG file in memory (1x1 pixel)"""
+    # Minimal PNG: 1x1 red pixel
+    png_data = (
+        b'\x89PNG\r\n\x1a\n'  # PNG signature
+        b'\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
+        b'\x08\x02\x00\x00\x00\x90wS\xde'  # IHDR chunk
+        b'\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x00\x03\x00\x01'
+        b'\x00\x00\x00\x00\x00\x00\x00\x00'  # IDAT chunk
+        b'\x00\x00\x00\x00IEND\xaeB`\x82'  # IEND chunk
+    )
+    return io.BytesIO(png_data)
+
+
+def create_test_mp3():
+    """Create a minimal valid MP3 file in memory"""
+    # Minimal MP3 frame header + some data
+    mp3_data = (
+        b'\xff\xfb\x90\x00'  # MP3 frame sync + header
+        b'\x00' * 100  # Some audio data
+    )
+    return io.BytesIO(mp3_data)
+
+
+def test_11_upload_without_auth():
+    """Test 11: POST /api/uploads without auth -> 401"""
+    try:
+        files = {'file': ('test.png', create_test_png(), 'image/png')}
+        response = requests.post(f"{BACKEND_URL}/uploads", files=files, timeout=10)
+        
+        if response.status_code == 401:
+            log_test("POST /api/uploads without auth returns 401", True, "Correctly rejected")
+        else:
+            log_test("POST /api/uploads without auth returns 401", False, 
+                    f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        log_test("POST /api/uploads without auth returns 401", False, str(e))
+
+
+def test_12_upload_png_with_auth():
+    """Test 12: POST /api/uploads with Bearer token and PNG -> 200 with url, kind, size"""
+    global uploaded_files
+    
+    try:
+        headers = {"Authorization": f"Bearer {test_session_token}"}
+        files = {'file': ('test.png', create_test_png(), 'image/png')}
+        response = requests.post(f"{BACKEND_URL}/uploads", files=files, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            required_fields = ["url", "kind", "size"]
+            missing_fields = [f for f in required_fields if f not in data]
+            
+            if not missing_fields:
+                if data["kind"] == "image" and data["url"].startswith("/api/uploads/"):
+                    uploaded_files.append(data["url"])
+                    log_test("POST /api/uploads with PNG returns 200 with url/kind/size", True, 
+                            f"URL: {data['url']}, kind: {data['kind']}, size: {data['size']} bytes")
+                else:
+                    log_test("POST /api/uploads with PNG returns 200 with url/kind/size", False, 
+                            f"Invalid kind ({data['kind']}) or url ({data['url']})")
+            else:
+                log_test("POST /api/uploads with PNG returns 200 with url/kind/size", False, 
+                        f"Missing fields: {missing_fields}")
+        else:
+            log_test("POST /api/uploads with PNG returns 200 with url/kind/size", False, 
+                    f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        log_test("POST /api/uploads with PNG returns 200 with url/kind/size", False, str(e))
+
+
+def test_13_get_uploaded_file():
+    """Test 13: GET uploaded file URL -> 200 with non-empty body"""
+    try:
+        if not uploaded_files:
+            log_test("GET uploaded file returns 200 with content", False, "No uploaded files to test")
+            return
+        
+        # Get the first uploaded file
+        file_url = uploaded_files[0]
+        full_url = f"{BACKEND_URL.rsplit('/api', 1)[0]}{file_url}"
+        
+        response = requests.get(full_url, timeout=10)
+        
+        if response.status_code == 200:
+            if len(response.content) > 0:
+                log_test("GET uploaded file returns 200 with content", True, 
+                        f"File size: {len(response.content)} bytes")
+            else:
+                log_test("GET uploaded file returns 200 with content", False, "Empty response body")
+        else:
+            log_test("GET uploaded file returns 200 with content", False, 
+                    f"Status: {response.status_code}")
+    except Exception as e:
+        log_test("GET uploaded file returns 200 with content", False, str(e))
+
+
+def test_14_upload_mp3_with_auth():
+    """Test 14: POST /api/uploads with MP3 file -> 200 with kind=audio"""
+    global uploaded_files
+    
+    try:
+        headers = {"Authorization": f"Bearer {test_session_token}"}
+        files = {'file': ('test.mp3', create_test_mp3(), 'audio/mpeg')}
+        response = requests.post(f"{BACKEND_URL}/uploads", files=files, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("kind") == "audio" and data.get("url", "").startswith("/api/uploads/"):
+                uploaded_files.append(data["url"])
+                log_test("POST /api/uploads with MP3 returns kind=audio", True, 
+                        f"URL: {data['url']}, size: {data['size']} bytes")
+            else:
+                log_test("POST /api/uploads with MP3 returns kind=audio", False, 
+                        f"Invalid kind: {data.get('kind')} or url: {data.get('url')}")
+        else:
+            log_test("POST /api/uploads with MP3 returns kind=audio", False, 
+                    f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        log_test("POST /api/uploads with MP3 returns kind=audio", False, str(e))
+
+
+def test_15_upload_unsupported_type():
+    """Test 15: POST /api/uploads with PDF content-type -> 400"""
+    try:
+        headers = {"Authorization": f"Bearer {test_session_token}"}
+        files = {'file': ('test.pdf', io.BytesIO(b'fake pdf content'), 'application/pdf')}
+        response = requests.post(f"{BACKEND_URL}/uploads", files=files, headers=headers, timeout=10)
+        
+        if response.status_code == 400:
+            log_test("POST /api/uploads with PDF returns 400", True, 
+                    f"Correctly rejected: {response.json().get('detail', '')}")
+        else:
+            log_test("POST /api/uploads with PDF returns 400", False, 
+                    f"Status: {response.status_code}, Expected 400")
+    except Exception as e:
+        log_test("POST /api/uploads with PDF returns 400", False, str(e))
+
+
+def test_16_post_with_audio_video_urls():
+    """Test 16: POST /api/posts with audioUrl and videoUrl -> 200 with fields present"""
+    global test_post_id
+    
+    try:
+        headers = {"Authorization": f"Bearer {test_session_token}"}
+        payload = {
+            "title": "Oi Nitom - Traditional Mising Song",
+            "category": "Song",
+            "description": "Sharing an Oi Nitom recording from our village",
+            "audioUrl": "/api/uploads/abc123.mp3",
+            "videoUrl": "https://www.youtube.com/watch?v=abc12345678"
+        }
+        response = requests.post(f"{BACKEND_URL}/posts", json=payload, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if "audioUrl" in data and "videoUrl" in data:
+                test_post_id = data["id"]
+                log_test("POST /api/posts with audioUrl+videoUrl returns 200", True, 
+                        f"Post created with audioUrl: {data['audioUrl']}, videoUrl: {data['videoUrl']}")
+            else:
+                log_test("POST /api/posts with audioUrl+videoUrl returns 200", False, 
+                        "Response missing audioUrl or videoUrl fields")
+        else:
+            log_test("POST /api/posts with audioUrl+videoUrl returns 200", False, 
+                    f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        log_test("POST /api/posts with audioUrl+videoUrl returns 200", False, str(e))
+
+
+def test_17_post_with_profanity():
+    """Test 17: POST /api/posts with profanity -> 400 blocked by moderation"""
+    try:
+        headers = {"Authorization": f"Bearer {test_session_token}"}
+        payload = {
+            "title": "Test Moderation",
+            "category": "Memory",
+            "description": "fuck this shit"  # Explicit profanity to trigger moderation
+        }
+        response = requests.post(f"{BACKEND_URL}/posts", json=payload, headers=headers, timeout=10)
+        
+        if response.status_code == 400:
+            detail = response.json().get("detail", "")
+            log_test("POST /api/posts with profanity returns 400", True, 
+                    f"Correctly blocked: {detail}")
+        else:
+            log_test("POST /api/posts with profanity returns 400", False, 
+                    f"Status: {response.status_code}, Expected 400 (blocked by moderation)")
+    except Exception as e:
+        log_test("POST /api/posts with profanity returns 400", False, str(e))
+
+
+def test_18_auth_me_sanity_check():
+    """Test 18: Sanity check - GET /api/auth/me still works with token"""
+    try:
+        headers = {"Authorization": f"Bearer {test_session_token}"}
+        response = requests.get(f"{BACKEND_URL}/auth/me", headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if "user_id" in data and data["user_id"] == test_user_id:
+                log_test("GET /api/auth/me sanity check passes", True, 
+                        f"Auth still working for user: {data['name']}")
+            else:
+                log_test("GET /api/auth/me sanity check passes", False, "user_id mismatch")
+        else:
+            log_test("GET /api/auth/me sanity check passes", False, 
+                    f"Status: {response.status_code}")
+    except Exception as e:
+        log_test("GET /api/auth/me sanity check passes", False, str(e))
+
+
 def print_summary():
     """Print test summary"""
     print("\n" + "="*70)
@@ -419,10 +646,15 @@ def main():
     
     try:
         # Run all tests
+        print("\n--- Basic API Tests ---")
         test_1_root_endpoint()
         test_2_content_articles()
+        
+        print("\n--- Auth Tests ---")
         test_3_auth_me_without_credentials()
         test_4_auth_me_with_bearer_token()
+        
+        print("\n--- Posts CRUD Tests ---")
         test_5_get_posts_public()
         test_6_post_without_auth()
         test_7_post_with_auth()
@@ -433,6 +665,22 @@ def main():
             test_10_delete_other_user_post()
         else:
             print("⚠️  Skipping test 10 (cross-user authorization) - second user not created")
+        
+        print("\n--- Upload Tests (NEW) ---")
+        test_11_upload_without_auth()
+        test_12_upload_png_with_auth()
+        test_13_get_uploaded_file()
+        test_14_upload_mp3_with_auth()
+        test_15_upload_unsupported_type()
+        
+        print("\n--- Posts with Media URLs (NEW) ---")
+        test_16_post_with_audio_video_urls()
+        
+        print("\n--- Content Moderation Tests (NEW) ---")
+        test_17_post_with_profanity()
+        
+        print("\n--- Sanity Check ---")
+        test_18_auth_me_sanity_check()
         
         # Print summary
         all_passed = print_summary()

@@ -30,6 +30,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import YouTubePlayer from "../components/YouTubePlayer";
+import HeroCrossfade from "../components/HeroCrossfade";
 
 const iconMap = {
   BookA, Languages, BookOpen, Keyboard, MessagesSquare, Lightbulb, Music2, SearchCode, Feather,
@@ -67,9 +68,7 @@ const Home = () => {
           </p>
 
           <div className="mt-10 grid grid-cols-1 gap-6 rounded-xl border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-2 md:p-6">
-            <div className="aspect-[16/10] w-full overflow-hidden rounded-lg bg-neutral-800">
-              <img src={heroFeatured.image} alt={heroFeatured.title} className="h-full w-full object-cover" />
-            </div>
+            <HeroCrossfade images={heroFeatured.gallery} interval={5500} />
             <div className="flex flex-col justify-center">
               <CategoryTag>{heroFeatured.category}</CategoryTag>
               <h2 className="mt-2 font-serif text-2xl leading-snug text-neutral-100 md:text-3xl">

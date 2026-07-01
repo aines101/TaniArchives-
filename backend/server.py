@@ -1,4 +1,6 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -11,6 +13,8 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 import httpx
 
+from moderation import moderate
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
@@ -19,6 +23,9 @@ db_name = os.environ.get("DB_NAME", "tani_archive")
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
 
+UPLOAD_DIR = ROOT_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
+
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
@@ -26,6 +33,12 @@ EMERGENT_SESSION_DATA_URL = (
     "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 )
 SESSION_TTL_DAYS = 7
+
+# Allowed media
+ALLOWED_AUDIO = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg", "audio/webm", "audio/mp4"}
+ALLOWED_VIDEO = {"video/mp4", "video/webm", "video/ogg", "video/quicktime"}
+ALLOWED_IMAGE = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+MAX_UPLOAD_MB = 25
 
 
 # ------------ Models ------------
@@ -45,6 +58,8 @@ class PostCreate(BaseModel):
     category: str
     description: str
     imageUrl: Optional[str] = None
+    audioUrl: Optional[str] = None
+    videoUrl: Optional[str] = None
 
 
 class Post(BaseModel):
@@ -53,6 +68,8 @@ class Post(BaseModel):
     category: str
     description: str
     imageUrl: Optional[str] = None
+    audioUrl: Optional[str] = None
+    videoUrl: Optional[str] = None
     author: dict
     createdAt: str
 
@@ -67,9 +84,7 @@ async def get_current_user(request: Request) -> User:
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    session_doc = await db.user_sessions.find_one(
-        {"session_token": token}, {"_id": 0}
-    )
+    session_doc = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
     if not session_doc:
         raise HTTPException(status_code=401, detail="Invalid session")
 
@@ -81,9 +96,7 @@ async def get_current_user(request: Request) -> User:
     if expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=401, detail="Session expired")
 
-    user_doc = await db.users.find_one(
-        {"user_id": session_doc["user_id"]}, {"_id": 0}
-    )
+    user_doc = await db.users.find_one({"user_id": session_doc["user_id"]}, {"_id": 0})
     if not user_doc:
         raise HTTPException(status_code=401, detail="User not found")
     return User(**user_doc)
@@ -92,7 +105,6 @@ async def get_current_user(request: Request) -> User:
 # ------------ Auth Routes ------------
 @api_router.post("/auth/session")
 async def create_session(payload: SessionRequest, response: Response):
-    """Exchange session_id from Emergent OAuth for a backend session cookie."""
     async with httpx.AsyncClient(timeout=15.0) as http:
         r = await http.get(
             EMERGENT_SESSION_DATA_URL,
@@ -165,14 +177,47 @@ async def logout(request: Request, response: Response):
     return {"ok": True}
 
 
+# ------------ Upload ------------
+@api_router.post("/uploads")
+async def upload_file(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    """Accept image/audio/video, store on disk, return public URL under /api/uploads/<file>."""
+    ct = (file.content_type or "").lower()
+    if ct in ALLOWED_IMAGE:
+        kind = "image"
+    elif ct in ALLOWED_AUDIO:
+        kind = "audio"
+    elif ct in ALLOWED_VIDEO:
+        kind = "video"
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported content-type: {ct}")
+
+    data = await file.read()
+    size_mb = len(data) / (1024 * 1024)
+    if size_mb > MAX_UPLOAD_MB:
+        raise HTTPException(status_code=413, detail=f"File too large ({size_mb:.1f} MB > {MAX_UPLOAD_MB} MB)")
+
+    ext = os.path.splitext(file.filename or "")[1].lower() or ""
+    if not ext:
+        ext = {"image": ".jpg", "audio": ".mp3", "video": ".mp4"}[kind]
+    name = f"{uuid.uuid4().hex}{ext}"
+    (UPLOAD_DIR / name).write_bytes(data)
+    return {"url": f"/api/uploads/{name}", "kind": kind, "size": len(data)}
+
+
+@api_router.get("/uploads/{filename}")
+async def serve_upload(filename: str):
+    # Prevent path traversal
+    safe = os.path.basename(filename)
+    fp = UPLOAD_DIR / safe
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(str(fp))
+
+
 # ------------ Posts Routes ------------
 @api_router.get("/posts")
 async def list_posts():
-    docs = (
-        await db.posts.find({}, {"_id": 0})
-        .sort("createdAt", -1)
-        .to_list(500)
-    )
+    docs = await db.posts.find({}, {"_id": 0}).sort("createdAt", -1).to_list(500)
     return docs
 
 
@@ -180,12 +225,20 @@ async def list_posts():
 async def create_post(payload: PostCreate, user: User = Depends(get_current_user)):
     if not payload.title.strip() or not payload.description.strip():
         raise HTTPException(status_code=400, detail="Title and description are required")
+
+    combined = f"{payload.title}\n{payload.description}"
+    allowed, reason = await moderate(combined)
+    if not allowed:
+        raise HTTPException(status_code=400, detail=reason or "Content blocked by moderation")
+
     post = {
         "id": f"p_{uuid.uuid4().hex[:12]}",
         "title": payload.title.strip(),
         "category": payload.category,
         "description": payload.description.strip(),
         "imageUrl": payload.imageUrl,
+        "audioUrl": payload.audioUrl,
+        "videoUrl": payload.videoUrl,
         "author": {
             "user_id": user.user_id,
             "name": user.name,
@@ -209,14 +262,14 @@ async def delete_post(post_id: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
-# ------------ Content routes (seeded from mock) ------------
+# ------------ Content routes ------------
 SEED_ARTICLES = [
     {
         "id": "ali-ai-ligang",
         "category": "Festival",
         "title": "Ali\u2013Ai\u2013L\u00edgang: The Spring Sowing Festival of the Mising",
-        "excerpt": "An introduction to Ali\u2013Ai\u2013L\u00edgang, the Mising spring festival that marks the beginning of the sowing season with G\u00fcmr\u00e1g dance, apong rice-beer, and ancestral blessings.",
-        "image": "https://images.unsplash.com/photo-1759738102510-ec524f666274",
+        "excerpt": "An introduction to the Mising spring festival that marks the beginning of the sowing season with G\u00fcmr\u00e1g Som\u00e1n dance in Ege\u2013Gasor attire.",
+        "image": "https://commons.wikimedia.org/wiki/Special:FilePath/Mising_girls_dancing_During_Ali-Aye-Ligang.jpg?width=1400",
         "featured": True,
     },
     {
@@ -239,20 +292,6 @@ SEED_ARTICLES = [
         "title": "Kebang: The Traditional Village Council",
         "excerpt": "A primer on the Kebang system of self-governance practised by the Tani communities long before modern administration.",
         "image": None,
-    },
-    {
-        "id": "etymology-of-mising",
-        "category": "general",
-        "title": "Etymology of \u2018Mising\u2019: Origins and Meaning Behind the Name",
-        "excerpt": "'Mi' means man and 'A:sing' means son of the soil \u2014 tracing the layered meaning of the word Mising.",
-        "image": "https://images.unsplash.com/photo-1602020234671-15fd6180428d",
-    },
-    {
-        "id": "donyi-polo",
-        "category": "belief",
-        "title": "Donyi\u2013Polo: The Sun\u2013Moon Faith of the Tani",
-        "excerpt": "How the Tani clans worship Donyi (Sun) and Polo (Moon) as the twin witnesses of truth.",
-        "image": "https://images.pexels.com/photos/19347225/pexels-photo-19347225.jpeg",
     },
 ]
 

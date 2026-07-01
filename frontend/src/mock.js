@@ -13,6 +13,24 @@ export const heroFeatured = {
   excerpt:
     "An introduction to Ali\u2013Ai\u2013L\u00edgang, the Mising spring festival that marks the beginning of the sowing season with G\u00fcmr\u00e1g Som\u00e1n dance in Ege\u2013Gasor attire, ap\u00f3ng rice-beer, and ancestral blessings.",
   image: "https://commons.wikimedia.org/wiki/Special:FilePath/Mising_girls_dancing_During_Ali-Aye-Ligang.jpg?width=1400",
+  gallery: [
+    {
+      src: "https://commons.wikimedia.org/wiki/Special:FilePath/Mising_girls_dancing_During_Ali-Aye-Ligang.jpg?width=1400",
+      alt: "Mising girls dancing G\u00fcmr\u00e1g Som\u00e1n during Ali-Aye-Ligang in Ege-Gasor attire",
+    },
+    {
+      src: "https://commons.wikimedia.org/wiki/Special:FilePath/Ali-Aye-Ligang.jpg?width=1400",
+      alt: "Ali-Aye-Ligang festival of the Mising community",
+    },
+    {
+      src: "https://commons.wikimedia.org/wiki/Special:FilePath/Ali-Aye-Ligang_21.jpg?width=1400",
+      alt: "Ali-Aye-Ligang celebration in a Mising village",
+    },
+    {
+      src: "https://commons.wikimedia.org/wiki/Special:FilePath/Mising_wome_dance.jpg?width=1400",
+      alt: "Mising women performing the G\u00fcmr\u00e1g dance",
+    },
+  ],
 };
 
 export const featuredArticles = [

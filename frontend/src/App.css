@@ -36,6 +36,15 @@ a, button {
   transition: color 200ms ease, background-color 200ms ease, border-color 200ms ease;
 }
 
+/* Ken Burns slow zoom for hero crossfade */
+@keyframes hero-kenburns-anim {
+  0%   { transform: scale(1.02) translate3d(0, 0, 0); }
+  100% { transform: scale(1.12) translate3d(-1%, -1%, 0); }
+}
+.hero-kenburns {
+  animation: hero-kenburns-anim 8s ease-in-out both;
+}
+
 ::selection {
   background: rgba(245, 158, 11, 0.35);
   color: #fff8e7;
