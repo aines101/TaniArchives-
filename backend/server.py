@@ -204,12 +204,14 @@ async def upload_file(file: UploadFile = File(...), user: User = Depends(get_cur
     return {"url": f"/api/uploads/{name}", "kind": kind, "size": len(data)}
 
 
-@api_router.get("/uploads/{filename}")
-async def serve_upload(filename: str):
+@api_router.get("/uploads/{path:path}")
+async def serve_upload(path: str):
     # Prevent path traversal
-    safe = os.path.basename(filename)
+    safe = os.path.normpath(path).lstrip("/")
+    if ".." in safe.split("/"):
+        raise HTTPException(status_code=400, detail="Invalid path")
     fp = UPLOAD_DIR / safe
-    if not fp.exists():
+    if not fp.exists() or not fp.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(str(fp))
 
@@ -269,7 +271,7 @@ SEED_ARTICLES = [
         "category": "Festival",
         "title": "Ali\u2013Ai\u2013L\u00edgang: The Spring Sowing Festival of the Mising",
         "excerpt": "An introduction to the Mising spring festival that marks the beginning of the sowing season with G\u00fcmr\u00e1g Som\u00e1n dance in Ege\u2013Gasor attire.",
-        "image": "https://commons.wikimedia.org/wiki/Special:FilePath/Mising_girls_dancing_During_Ali-Aye-Ligang.jpg?width=1400",
+        "image": "/api/uploads/generated/hero_ali_ai_ligang_1.png",
         "featured": True,
     },
     {
