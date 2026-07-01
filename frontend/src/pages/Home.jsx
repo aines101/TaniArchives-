@@ -8,6 +8,7 @@ import {
   manuscripts,
   folktales,
   videos,
+  taniTribes,
 } from "../mock";
 import {
   SectionHeader,
@@ -101,6 +102,31 @@ const Home = () => {
           ))}
         </div>
       </section>
+
+      {/* Tani Clans */}
+      <section className="mx-auto max-w-6xl px-4 pb-8">
+        <SectionHeader title="The Tani Clan" />
+        <p className="-mt-2 mb-6 max-w-2xl text-sm text-neutral-400">
+          The Tani people descend from a common ancestor, Abo&#8209;Tani. Today
+          they form six major clans across Assam and Arunachal Pradesh, each
+          with its own dialect, festival calendar and material culture.
+        </p>
+        <div className="grid gap-5 md:grid-cols-3">
+          {taniTribes.map((t) => (
+            <div key={t.id} className="group overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900/40 transition-colors hover:border-amber-500/40">
+              <div className="aspect-[16/10] w-full overflow-hidden bg-neutral-800">
+                <img src={t.image} alt={`${t.name} tribe of Northeast India`} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
+              </div>
+              <div className="p-4">
+                <div className="font-serif text-xl text-neutral-100">{t.name}</div>
+                <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-amber-400/80">{t.region}</div>
+                <p className="mt-2 text-sm text-neutral-400">{t.marker}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
 
       {/* Learning & Tools */}
       <section className="mx-auto max-w-6xl px-4 py-8">
