@@ -12,7 +12,7 @@ export const heroFeatured = {
   title: "Ali\u2013Ai\u2013L\u00edgang: The Spring Sowing Festival of the Mising",
   excerpt:
     "An introduction to Ali\u2013Ai\u2013L\u00edgang, the Mising spring festival that marks the beginning of the sowing season with G\u00fcmr\u00e1g Som\u00e1n dance in Ege\u2013Gasor attire, ap\u00f3ng rice-beer, and ancestral blessings.",
-  image: "https://images.unsplash.com/photo-1711060266408-2d1f0d49a926",
+  image: "https://commons.wikimedia.org/wiki/Special:FilePath/Mising_girls_dancing_During_Ali-Aye-Ligang.jpg?width=1400",
 };
 
 export const featuredArticles = [
@@ -54,7 +54,7 @@ export const latestArticles = [
     category: "general",
     title: "Etymology of \u2018Mising\u2019: Origins and Meaning Behind the Name",
     excerpt: "'Mi' means man and 'A:sing' means son of the soil \u2014 tracing the layered meaning of the word Mising.",
-    image: "https://upload.wikimedia.org/wikipedia/commons/7/78/Apatani_Women_with_traditional_dress.jpg",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Ege,_Mising_traditional_dress_02.jpg?width=900",
   },
   {
     id: "donyi-polo",
@@ -176,7 +176,7 @@ export const videos = [
     title: "G\u00fcmr\u00e1g Som\u00e1n \u2014 The Mising Harvest Dance",
     category: "Dance",
     youtubeId: "1oFbnkK0lPo",
-    thumbnail: "https://images.unsplash.com/photo-1711060266408-2d1f0d49a926",
+    thumbnail: "https://commons.wikimedia.org/wiki/Special:FilePath/Gumrag_dance_of_the_Mising_tribe_of_Assam_at_Central_Park,_Connaught_Place,_New_Delhi_07.jpg?width=900",
     desc: "The signature dance of Ali\u2013Ai\u2013L\u00edgang, performed by women in Ege\u2013Gasor attire.",
   },
   {
@@ -184,7 +184,7 @@ export const videos = [
     title: "P\u00f3rag \u2014 The Mising Post-Harvest Festival",
     category: "Festival",
     youtubeId: "c1JzAKQjB6E",
-    thumbnail: "https://images.unsplash.com/photo-1711060266386-ad15553add61",
+    thumbnail: "https://commons.wikimedia.org/wiki/Special:FilePath/Mising_wome_dance.jpg?width=900",
     desc: "A community celebration held once every few years to thank the ancestors for a good harvest.",
   },
   {
@@ -192,7 +192,7 @@ export const videos = [
     title: "Oi Nitom \u2014 Traditional Mising Love Song",
     category: "Music",
     youtubeId: "BiP2Nq5f0Zg",
-    thumbnail: "https://upload.wikimedia.org/wikipedia/commons/7/78/Apatani_Women_with_traditional_dress.jpg",
+    thumbnail: "https://commons.wikimedia.org/wiki/Special:FilePath/A_Mising_tribal_girl_in_traditional_dress.jpg?width=900",
     desc: "A tender love song from the hills, sung antiphonally between young men and women.",
   },
   {
@@ -200,7 +200,7 @@ export const videos = [
     title: "Ali\u2013Ai\u2013L\u00edgang \u2014 Documentary",
     category: "Documentary",
     youtubeId: "nS_WvhIvGYs",
-    thumbnail: "https://images.unsplash.com/photo-1760637625870-ec403c6a1506",
+    thumbnail: "https://commons.wikimedia.org/wiki/Special:FilePath/Mising_girls_dancing_During_Ali-Aye-Ligang.jpg?width=900",
     desc: "A short film following a Mising village as it prepares for the spring sowing festival.",
   },
   {
@@ -250,7 +250,7 @@ export const taniTribes = [
     name: "Mising",
     region: "Assam \u2014 Dhemaji, Lakhimpur, Majuli, Tinsukia, Sonitpur",
     marker: "Ege\u2013Gasor striped weave, G\u00fcmr\u00e1g Som\u00e1n dance, Chang-Ghar stilt houses",
-    image: "https://upload.wikimedia.org/wikipedia/commons/7/78/Apatani_Women_with_traditional_dress.jpg",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/A_Mising_tribal_girl_in_traditional_dress.jpg?width=900",
   },
   {
     id: "apatani",
