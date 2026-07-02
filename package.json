@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node backend/server.js",
     "dev": "node backend/server.js",
-    "backend": "cd backend && npm start",
+    "backend": "node backend/server.js",
     "frontend": "cd frontend && npm start",
     "build": "echo \"No root build step for backend-only deployment\""
   },
