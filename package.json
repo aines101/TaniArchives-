@@ -1,0 +1,29 @@
+{
+  "name": "TaniArchives",
+  "version": "1.0.0",
+  "description": "TaniArchives - A platform for managing and sharing manuscripts, videos, and articles",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.py",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "backend": "cd backend && python server.py",
+    "frontend": "cd frontend && npm start",
+    "build": "cd frontend && npm run build"
+  },
+  "keywords": [
+    "manuscripts",
+    "articles",
+    "videos",
+    "community"
+  ],
+  "author": "aines101",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aines101/TaniArchives-"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}
