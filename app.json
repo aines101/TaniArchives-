@@ -10,8 +10,8 @@
     "start": "node backend/server.js",
     "frontend": "npm start --prefix frontend",
     "backend": "npm start --prefix backend",
-    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
-    "build": "npm run build --prefix frontend"
+    "dev": "node backend/server.js",
+    "build": "echo \"No root build step for backend-only deployment\""
   },
   "keywords": [
     "nodejs",
