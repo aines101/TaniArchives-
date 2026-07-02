@@ -1,0 +1,47 @@
+{
+  "name": "TaniArchives",
+  "description": "TaniArchives application with frontend and backend services",
+  "version": "1.0.0",
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
+  },
+  "scripts": {
+    "start": "node backend/server.js",
+    "frontend": "npm start --prefix frontend",
+    "backend": "npm start --prefix backend",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "build": "npm run build --prefix frontend"
+  },
+  "keywords": [
+    "nodejs",
+    "express",
+    "react"
+  ],
+  "author": "aines101",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aines101/TaniArchives-"
+  },
+  "env": {
+    "NODE_ENV": {
+      "description": "Environment (production/development)",
+      "value": "production"
+    },
+    "PORT": {
+      "description": "Port to run the application on",
+      "value": "5000"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ],
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "free"
+    }
+  }
+}
