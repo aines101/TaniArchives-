@@ -2,13 +2,12 @@
   "name": "TaniArchives",
   "version": "1.0.0",
   "description": "TaniArchives - A platform for managing and sharing manuscripts, videos, and articles",
-  "main": "backend/server.js",
   "scripts": {
-    "start": "node backend/server.js",
-    "dev": "node backend/server.js",
-    "backend": "node backend/server.js",
+    "start": "npm run build && npx serve -s frontend/build",
+    "dev": "npm start --prefix frontend",
+    "backend": "echo \"Backend not used for static webpage\"",
     "frontend": "cd frontend && npm start",
-    "build": "echo \"No root build step for backend-only deployment\""
+    "build": "npm run build --prefix frontend"
   },
   "keywords": [
     "manuscripts",
@@ -27,6 +26,7 @@
     "npm": ">=8.0.0"
   },
   "dependencies": {
-    "express": "^4.18.4"
+    "express": "^5.2.1",
+    "serve": "^14.2.0"
   }
 }
