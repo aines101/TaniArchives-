@@ -7,7 +7,7 @@
     "dev": "yarn start --cwd frontend",
     "backend": "echo \"Backend not used for static webpage\"",
     "frontend": "cd frontend && yarn start",
-    "build": "yarn --cwd frontend build"
+    "build": "yarn install --cwd frontend && yarn --cwd frontend build"
   },
   "keywords": [
     "manuscripts",
