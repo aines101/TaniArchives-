@@ -18,7 +18,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage  # noqa: E402
+import httpx
+from typing import Optional
 
 OUT_DIR = Path(__file__).parent / "uploads" / "generated"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -104,22 +105,30 @@ async def generate_one(name: str, prompt: str) -> str | None:
     out_path = OUT_DIR / f"{name}.png"
     if out_path.exists():
         return str(out_path)
-    api_key = os.environ["EMERGENT_LLM_KEY"]
-    chat = (
-        LlmChat(api_key=api_key, session_id=f"gen-{name}", system_message="")
-        .with_model("gemini", MODEL)
-        .with_params(modalities=["image", "text"])
-    )
+    # Use a local image-generation endpoint if provided (keeps project independent).
+    local_url = os.environ.get("LOCAL_IMAGE_URL")
     full_prompt = prompt + STYLE
+    if not local_url:
+        print(f"[SKIP] {name}: LOCAL_IMAGE_URL not set; skipping generation")
+        return None
+
     try:
-        _text, images = await chat.send_message_multimodal_response(UserMessage(text=full_prompt))
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(local_url, json={"prompt": full_prompt})
+        if r.status_code != 200:
+            print(f"[ERR] {name}: image service returned {r.status_code}")
+            return None
+        data = r.json()
+        # Expect base64 image data under 'image' or 'data' key.
+        b64 = data.get("image") or data.get("data") or data.get("b64")
+        if not b64:
+            print(f"[WARN] {name}: no image returned (missing 'image' in response)")
+            return None
+        b = base64.b64decode(b64)
     except Exception as e:
         print(f"[ERR] {name}: {e}")
         return None
-    if not images:
-        print(f"[WARN] {name}: no image returned")
-        return None
-    b = base64.b64decode(images[0]["data"])
+
     out_path.write_bytes(b)
     print(f"[OK] {name}: {len(b)/1024:.0f} KB")
     return str(out_path)

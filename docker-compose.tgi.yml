@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Set MODEL_ID to a hosted model id or mount a local model into /models
+      - MODEL_ID=${MODEL_ID:-gpt2}
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - ./models:/models
+    command: 
+      - --model-id
+      - ${MODEL_ID:-gpt2}
+      - --trust-remote-code

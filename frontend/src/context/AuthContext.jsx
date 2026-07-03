@@ -5,8 +5,17 @@ const AuthContext = createContext(null);
 
 // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
 export const signInWithGoogle = () => {
-  const redirectUrl = window.location.origin + "/community";
-  window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+  const clientId = process.env.REACT_APP_GOOGLE_CLIENT_ID;
+  const redirectUri = window.location.origin + "/auth/callback";
+  const scope = encodeURIComponent("openid email profile");
+  const params = new URLSearchParams({
+    client_id: clientId,
+    response_type: "code",
+    scope: "openid email profile",
+    redirect_uri: redirectUri,
+    prompt: "select_account",
+  });
+  window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 };
 
 export const AuthProvider = ({ children }) => {
@@ -34,7 +43,9 @@ export const AuthProvider = ({ children }) => {
   }, [checkAuth]);
 
   const exchangeSession = async (sessionId) => {
-    const res = await api.post("/auth/session", { session_id: sessionId });
+    // `sessionId` is actually the Google authorization `code` from the callback.
+    const redirectUri = window.location.origin + "/auth/callback";
+    const res = await api.post("/auth/session", { code: sessionId, redirect_uri: redirectUri });
     setUser(res.data.user);
     return res.data.user;
   };

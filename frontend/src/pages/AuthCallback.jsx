@@ -11,16 +11,15 @@ const AuthCallback = () => {
   useEffect(() => {
     if (processed.current) return;
     processed.current = true;
-    const hash = window.location.hash || "";
-    const match = hash.match(/session_id=([^&]+)/);
-    if (!match) {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (!code) {
       navigate("/login");
       return;
     }
-    const sessionId = decodeURIComponent(match[1]);
     (async () => {
       try {
-        await exchangeSession(sessionId);
+        await exchangeSession(code);
         // Clear hash and go to community
         window.history.replaceState(null, "", window.location.pathname);
         navigate("/community", { replace: true });

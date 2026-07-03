@@ -12,7 +12,7 @@ from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
 
 # Load environment variables
-BACKEND_URL = "https://mising-tribe-hub.preview.emergentagent.com/api"
+BACKEND_URL = "http://localhost:8000/api"
 MONGO_URL = "mongodb://localhost:27017"
 DB_NAME = "test_database"
 

@@ -2,12 +2,14 @@
 
 ## Backend base: `${REACT_APP_BACKEND_URL}/api`
 
-## Auth (Emergent Google OAuth)
-- Frontend redirects to `https://auth.emergentagent.com/?redirect=<origin>/community`
-- On return, URL has `#session_id=...`
-- Frontend detects fragment and POSTs to `POST /api/auth/session` with `{ session_id }`
-- Backend calls Emergent `/auth/v1/env/oauth/session-data` server-side, upserts user, creates session_token, sets `session_token` httpOnly cookie, returns user JSON.
-- `GET /api/auth/me` — returns current user based on cookie or Authorization header.
+## Auth (Google OAuth)
+- Frontend redirects users to Google's OAuth consent screen (`https://accounts.google.com/o/oauth2/v2/auth`) with
+	`client_id`, `response_type=code`, `scope=openid email profile`, and `redirect_uri` pointing to `<origin>/auth/callback`.
+- On return, the callback receives a query parameter `?code=...`.
+- Frontend sends the `code` to `POST /api/auth/session` which exchanges it server-side for tokens with Google,
+	fetches the user's profile (email, name, picture), upserts the user in the local DB, creates a `session_token` row,
+	and sets an `HttpOnly` `session_token` cookie before returning the user JSON.
+- `GET /api/auth/me` — returns current user based on cookie or `Authorization: Bearer <token>` header.
 - `POST /api/auth/logout` — clears session in DB & cookie.
 
 ## Community Posts

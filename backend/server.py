@@ -13,7 +13,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 import httpx
 
-from moderation import moderate
+from backend.moderation import moderate
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -29,9 +29,9 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
-EMERGENT_SESSION_DATA_URL = (
-    "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
-)
+# Google OAuth configuration - server performs code -> token exchange.
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 SESSION_TTL_DAYS = 7
 
 # Allowed media
@@ -50,7 +50,10 @@ class User(BaseModel):
 
 
 class SessionRequest(BaseModel):
-    session_id: str
+    # OAuth2 authorization code from Google OAuth flow
+    code: Optional[str] = None
+    # Optional redirect URI used in the OAuth flow (should match the one used on the client)
+    redirect_uri: Optional[str] = None
 
 
 class PostCreate(BaseModel):
@@ -105,18 +108,48 @@ async def get_current_user(request: Request) -> User:
 # ------------ Auth Routes ------------
 @api_router.post("/auth/session")
 async def create_session(payload: SessionRequest, response: Response):
+    # Expect a Google authorization `code` from the frontend. Exchange it
+    # server-side for tokens and fetch userinfo.
+    if not payload.code:
+        raise HTTPException(status_code=400, detail="Missing authorization code")
+
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=500, detail="Google OAuth not configured on server")
+
+    token_payload = {
+        "code": payload.code,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "authorization_code",
+        "redirect_uri": payload.redirect_uri or os.environ.get("GOOGLE_REDIRECT_URI", ""),
+    }
+
     async with httpx.AsyncClient(timeout=15.0) as http:
-        r = await http.get(
-            EMERGENT_SESSION_DATA_URL,
-            headers={"X-Session-ID": payload.session_id},
-        )
+        try:
+            r = await http.post(GOOGLE_TOKEN_URL, data=token_payload)
+        except Exception:
+            raise HTTPException(status_code=502, detail="Failed to contact Google token endpoint")
+
     if r.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid session_id")
-    data = r.json()
+        raise HTTPException(status_code=401, detail="Invalid authorization code")
+
+    token_data = r.json()
+    access_token = token_data.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Failed to obtain access token from Google")
+
+    # Fetch userinfo
+    async with httpx.AsyncClient(timeout=10.0) as http:
+        u = await http.get(GOOGLE_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"})
+    if u.status_code != 200:
+        raise HTTPException(status_code=502, detail="Failed to fetch userinfo from Google")
+    data = u.json()
 
     email = data.get("email")
     if not email:
-        raise HTTPException(status_code=400, detail="Missing email in auth data")
+        raise HTTPException(status_code=400, detail="Missing email in Google userinfo")
 
     existing = await db.users.find_one({"email": email}, {"_id": 0})
     if existing:
