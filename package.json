@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "TaniArchives - A platform for managing and sharing manuscripts, videos, and articles",
   "scripts": {
-    "start": "npm run build && npx serve -s frontend/build",
-    "dev": "npm start --prefix frontend",
+    "start": "yarn build && npx serve -s frontend/build",
+    "dev": "yarn start --cwd frontend",
     "backend": "echo \"Backend not used for static webpage\"",
-    "frontend": "cd frontend && npm start",
-    "build": "npm run build --prefix frontend"
+    "frontend": "cd frontend && yarn start",
+    "build": "yarn --cwd frontend build"
   },
   "keywords": [
     "manuscripts",
