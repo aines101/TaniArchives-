@@ -17,12 +17,9 @@ import { Toaster } from "./components/ui/toaster";
 
 // Detect OAuth callback fragment during render and route to AuthCallback
 function AppRouter() {
-  const location = useLocation();
-  if (location.hash?.includes("session_id=")) {
-    return <AuthCallback />;
-  }
   return (
     <Routes>
+      <Route path="/auth/callback" element={<AuthCallback />} />
       <Route element={<Layout />}>
         <Route path="/" element={<Home />} />
         <Route path="/articles" element={<Articles />} />

@@ -33,6 +33,11 @@ api_router = APIRouter(prefix="/api")
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 SESSION_TTL_DAYS = 7
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE")
+if COOKIE_SECURE is None:
+    COOKIE_SECURE = os.environ.get("ENVIRONMENT", "development").lower() == "production"
+else:
+    COOKIE_SECURE = COOKIE_SECURE.lower() in ("true", "1", "yes")
 
 # Allowed media
 ALLOWED_AUDIO = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg", "audio/webm", "audio/mp4"}
@@ -186,7 +191,7 @@ async def create_session(payload: SessionRequest, response: Response):
         key="session_token",
         value=session_token,
         httponly=True,
-        secure=True,
+        secure=COOKIE_SECURE,
         samesite="none",
         max_age=SESSION_TTL_DAYS * 24 * 60 * 60,
         path="/",
@@ -206,7 +211,7 @@ async def logout(request: Request, response: Response):
     token = request.cookies.get("session_token")
     if token:
         await db.user_sessions.delete_many({"session_token": token})
-    response.delete_cookie("session_token", path="/", samesite="none", secure=True)
+    response.delete_cookie("session_token", path="/", samesite="none", secure=COOKIE_SECURE)
     return {"ok": True}
 
 

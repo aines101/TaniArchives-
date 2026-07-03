@@ -2,12 +2,31 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { api } from "../lib/api";
 
 const AuthContext = createContext(null);
+const AUTH_TOKEN_KEY = "session_token";
 
-// REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+const setAuthToken = (token) => {
+  if (typeof window === "undefined") return;
+  if (token) {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+    api.defaults.headers.common.Authorization = `Bearer ${token}`;
+  } else {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    delete api.defaults.headers.common.Authorization;
+  }
+};
+
+const loadStoredToken = () => {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+};
+
 export const signInWithGoogle = () => {
   const clientId = process.env.REACT_APP_GOOGLE_CLIENT_ID;
-  const redirectUri = window.location.origin + "/auth/callback";
-  const scope = encodeURIComponent("openid email profile");
+  if (!clientId) {
+    console.error("Missing REACT_APP_GOOGLE_CLIENT_ID environment variable.");
+    return;
+  }
+  const redirectUri = process.env.REACT_APP_GOOGLE_REDIRECT_URI || window.location.origin + "/auth/callback";
   const params = new URLSearchParams({
     client_id: clientId,
     response_type: "code",
@@ -23,29 +42,40 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const checkAuth = useCallback(async () => {
+    const storedToken = loadStoredToken();
+    if (storedToken) {
+      setAuthToken(storedToken);
+    }
     try {
       const res = await api.get("/auth/me");
       setUser(res.data);
     } catch (e) {
       setUser(null);
+      if (storedToken) {
+        setAuthToken(null);
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    // If returning from OAuth callback, skip /me. AuthCallback handles exchange.
-    if (typeof window !== "undefined" && window.location.hash?.includes("session_id=")) {
-      setLoading(false);
-      return;
+    if (typeof window !== "undefined") {
+      const searchParams = new URLSearchParams(window.location.search);
+      if (searchParams.has("code")) {
+        setLoading(false);
+        return;
+      }
     }
     checkAuth();
   }, [checkAuth]);
 
   const exchangeSession = async (sessionId) => {
-    // `sessionId` is actually the Google authorization `code` from the callback.
-    const redirectUri = window.location.origin + "/auth/callback";
+    const redirectUri = process.env.REACT_APP_GOOGLE_REDIRECT_URI || window.location.origin + "/auth/callback";
     const res = await api.post("/auth/session", { code: sessionId, redirect_uri: redirectUri });
+    if (res?.data?.session_token) {
+      setAuthToken(res.data.session_token);
+    }
     setUser(res.data.user);
     return res.data.user;
   };
@@ -53,8 +83,11 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await api.post("/auth/logout");
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      // ignore
+    }
     setUser(null);
+    setAuthToken(null);
   };
 
   return (
